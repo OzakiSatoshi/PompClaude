@@ -29,14 +29,14 @@ jobs:
     - name: Install Claude Code CLI
       run: |
         echo "Installing Claude Code CLI..."
-        npm install -g @anthropic-ai/claude-code-cli
+        npm install -g @anthropic-ai/claude-code
         
     - name: Verify Claude Code Installation
       env:
         ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       run: |
         echo "Verifying Claude Code installation..."
-        claude-code --version || echo "Claude Code version check failed"
+        claude --version || echo "Claude Code version check failed"
         
     - name: Code Review with Claude Code
       env:
@@ -47,7 +47,7 @@ jobs:
         echo "Task: $task"
         
         # Run Claude Code analysis
-        claude-code "$task" > claude-analysis.md || echo "Claude Code analysis completed with warnings"
+        claude -p "$task" > claude-analysis.md || echo "Claude Code analysis completed with warnings"
         
         # Display results
         if [ -f "claude-analysis.md" ]; then
@@ -70,7 +70,7 @@ jobs:
         ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       run: |
         echo "Analyzing project structure for PoC requirements..."
-        claude-code "Analyze the project structure and suggest the next development steps for the PompClaude PoC based on CLAUDE.md requirements" > structure-analysis.md || true
+        claude -p "Analyze the project structure and suggest the next development steps for the PompClaude PoC based on CLAUDE.md requirements" > structure-analysis.md || true
         
         if [ -f "structure-analysis.md" ]; then
           echo "=== Project Structure Analysis ==="
@@ -82,7 +82,7 @@ jobs:
         ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       run: |
         echo "Running security review with Claude Code..."
-        claude-code "Review the codebase for security vulnerabilities, especially regarding point cloud data handling and Docker security" > security-review.md || true
+        claude -p "Review the codebase for security vulnerabilities, especially regarding point cloud data handling and Docker security" > security-review.md || true
         
         if [ -f "security-review.md" ]; then
           echo "=== Security Review Results ==="
@@ -94,7 +94,7 @@ jobs:
         ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       run: |
         echo "Analyzing performance requirements..."
-        claude-code "Analyze the current setup and suggest optimizations to meet the 10-second processing requirement for point cloud comparison" > performance-analysis.md || true
+        claude -p "Analyze the current setup and suggest optimizations to meet the 10-second processing requirement for point cloud comparison" > performance-analysis.md || true
         
         if [ -f "performance-analysis.md" ]; then
           echo "=== Performance Analysis ==="
@@ -132,7 +132,7 @@ jobs:
         
     - name: Install Claude Code CLI
       run: |
-        npm install -g @anthropic-ai/claude-code-cli
+        npm install -g @anthropic-ai/claude-code
         
     - name: Analyze PR Changes
       env:
@@ -147,7 +147,7 @@ jobs:
         
         # Analyze changes with Claude Code
         if [ -s changed-files.txt ]; then
-          claude-code "Review the changes in this pull request and provide feedback based on the PompClaude PoC requirements" > pr-review.md || true
+          claude -p "Review the changes in this pull request and provide feedback based on the PompClaude PoC requirements" > pr-review.md || true
           
           if [ -f "pr-review.md" ]; then
             echo "=== Pull Request Review ==="
@@ -197,14 +197,14 @@ jobs:
         
     - name: Install Claude Code CLI
       run: |
-        npm install -g @anthropic-ai/claude-code-cli
+        npm install -g @anthropic-ai/claude-code
         
     - name: Generate Weekly Report
       env:
         ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       run: |
         echo "Generating weekly project report..."
-        claude-code "Generate a weekly progress report for the PompClaude PoC project, including current status, completed tasks, and next steps" > weekly-report.md || true
+        claude -p "Generate a weekly progress report for the PompClaude PoC project, including current status, completed tasks, and next steps" > weekly-report.md || true
         
         if [ -f "weekly-report.md" ]; then
           echo "=== Weekly Report ==="
