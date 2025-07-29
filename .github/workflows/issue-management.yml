@@ -1,0 +1,173 @@
+name: Issue and PR Management
+
+on:
+  issues:
+    types: [opened, labeled, assigned]
+  pull_request:
+    types: [opened, labeled, assigned, ready_for_review]
+  schedule:
+    # Run every day at 9:00 AM JST (00:00 UTC)
+    - cron: '0 0 * * *'
+
+jobs:
+  issue-triage:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'issues' && github.event.action == 'opened'
+    
+    steps:
+    - name: Add PoC-related labels
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const issue = context.payload.issue;
+          const title = issue.title.toLowerCase();
+          const body = issue.body ? issue.body.toLowerCase() : '';
+          
+          const labels = [];
+          
+          // Auto-label based on title and content
+          if (title.includes('docker') || body.includes('docker')) {
+            labels.push('docker');
+          }
+          if (title.includes('要件') || title.includes('requirement') || body.includes('要件')) {
+            labels.push('requirements');
+          }
+          if (title.includes('ui') || title.includes('ux') || body.includes('3dビューア')) {
+            labels.push('ui/ux');
+          }
+          if (title.includes('セキュリティ') || title.includes('security') || body.includes('セキュリティ')) {
+            labels.push('security');
+          }
+          if (title.includes('インフラ') || title.includes('infrastructure') || body.includes('インフラ')) {
+            labels.push('infrastructure');
+          }
+          if (title.includes('点群') || body.includes('点群') || body.includes('lidar')) {
+            labels.push('point-cloud');
+          }
+          
+          // Add priority based on content
+          if (body.includes('重大度: high') || body.includes('priority: high')) {
+            labels.push('priority: high');
+          } else if (body.includes('重大度: medium') || body.includes('priority: medium')) {
+            labels.push('priority: medium');
+          } else if (body.includes('重大度: low') || body.includes('priority: low')) {
+            labels.push('priority: low');
+          }
+          
+          // Add PoC label to all issues
+          labels.push('poc');
+          
+          if (labels.length > 0) {
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              labels: labels
+            });
+          }
+
+  stale-issue-check:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+    
+    steps:
+    - name: Check for stale issues
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const { data: issues } = await github.rest.issues.listForRepo({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            state: 'open',
+            sort: 'updated',
+            direction: 'asc',
+            per_page: 100
+          });
+          
+          const now = new Date();
+          const thirtyDaysAgo = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000));
+          
+          for (const issue of issues) {
+            const updatedAt = new Date(issue.updated_at);
+            
+            if (updatedAt < thirtyDaysAgo) {
+              // Add stale label and comment
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                labels: ['stale']
+              });
+              
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: `この課題は30日間更新されていません。まだ対応が必要な場合は、コメントを追加してください。\n\nThis issue has been inactive for 30 days. Please add a comment if this still needs attention.`
+              });
+            }
+          }
+
+  pr-validation:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    
+    steps:
+    - name: Check PR requirements
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const pr = context.payload.pull_request;
+          const body = pr.body || '';
+          
+          const checks = {
+            '概要セクション': body.includes('## 概要') || body.includes('## Summary'),
+            '変更内容': body.includes('変更内容') || body.includes('Changes'),
+            'テスト計画': body.includes('テスト') || body.includes('Test'),
+          };
+          
+          const missing = Object.entries(checks)
+            .filter(([key, value]) => !value)
+            .map(([key]) => key);
+          
+          if (missing.length > 0) {
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr.number,
+              body: `⚠️ このプルリクエストには以下のセクションが不足しています:\n\n${missing.map(item => `- ${item}`).join('\n')}\n\nプルリクエストテンプレートを参考に説明を追加してください。`
+            });
+          } else {
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr.number,
+              body: `✅ プルリクエストの形式確認完了。レビューの準備ができています。`
+            });
+          }
+
+  update-project-status:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'issues' && (github.event.action == 'closed' || github.event.action == 'labeled')
+    
+    steps:
+    - name: Update project progress
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const { data: issues } = await github.rest.issues.listForRepo({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            labels: 'poc',
+            state: 'all',
+            per_page: 100
+          });
+          
+          const totalIssues = issues.length;
+          const closedIssues = issues.filter(issue => issue.state === 'closed').length;
+          const progress = totalIssues > 0 ? Math.round((closedIssues / totalIssues) * 100) : 0;
+          
+          console.log(`PoC Progress: ${closedIssues}/${totalIssues} issues completed (${progress}%)`);
+          
+          // Update README with progress if it exists
+          // This would require more complex logic to update the actual file

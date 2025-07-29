@@ -1,0 +1,156 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    name: Test and Validate
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Validate CLAUDE.md format
+      run: |
+        echo "Validating CLAUDE.md file..."
+        if [ -f "CLAUDE.md" ]; then
+          echo "✅ CLAUDE.md exists"
+          # Check for required sections
+          if grep -q "プロジェクト概要" CLAUDE.md; then
+            echo "✅ Project overview section found"
+          else
+            echo "❌ Project overview section missing"
+            exit 1
+          fi
+          if grep -q "技術要件" CLAUDE.md; then
+            echo "✅ Technical requirements section found"
+          else
+            echo "❌ Technical requirements section missing"
+            exit 1
+          fi
+        else
+          echo "❌ CLAUDE.md not found"
+          exit 1
+        fi
+        
+    - name: Check Docker requirements
+      run: |
+        echo "Checking Docker-related requirements..."
+        if grep -q "Docker" CLAUDE.md; then
+          echo "✅ Docker requirements documented"
+        else
+          echo "❌ Docker requirements not documented"
+          exit 1
+        fi
+        
+    - name: Validate performance requirements
+      run: |
+        echo "Checking performance requirements..."
+        if grep -q "10秒以内" CLAUDE.md; then
+          echo "✅ Performance requirements (10-second limit) documented"
+        else
+          echo "❌ Performance requirements missing"
+          exit 1
+        fi
+
+  docker-build:
+    runs-on: ubuntu-latest
+    name: Docker Build Test
+    needs: test
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      
+    - name: Create sample Dockerfile for validation
+      run: |
+        cat > Dockerfile << EOF
+        FROM node:18-alpine
+        WORKDIR /app
+        COPY package*.json ./
+        RUN npm ci --only=production
+        COPY . .
+        EXPOSE 3000
+        CMD ["npm", "start"]
+        EOF
+        
+    - name: Build Docker image (if Dockerfile exists)
+      run: |
+        if [ -f "Dockerfile" ]; then
+          echo "Building Docker image..."
+          docker build -t pompcloud-poc:test .
+          echo "✅ Docker image built successfully"
+        else
+          echo "⚠️ No Dockerfile found - skipping Docker build"
+        fi
+
+  security-scan:
+    runs-on: ubuntu-latest
+    name: Security and Quality Check
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Check for sensitive data
+      run: |
+        echo "Scanning for sensitive information..."
+        # Check for common sensitive patterns
+        if grep -r -i "password\|secret\|key\|token" --exclude-dir=.git --exclude="*.yml" --exclude="*.yaml" .; then
+          echo "❌ Potential sensitive data found"
+          exit 1
+        else
+          echo "✅ No sensitive data detected"
+        fi
+        
+    - name: Validate issue templates
+      run: |
+        echo "Checking GitHub issue management..."
+        if [ -d ".github/ISSUE_TEMPLATE" ]; then
+          echo "✅ Issue templates found"
+        else
+          echo "⚠️ Consider adding issue templates"
+        fi
+
+  documentation-check:
+    runs-on: ubuntu-latest
+    name: Documentation Validation
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Check README.md
+      run: |
+        if [ -f "README.md" ]; then
+          echo "✅ README.md exists"
+          if [ $(wc -l < README.md) -gt 5 ]; then
+            echo "✅ README.md has content"
+          else
+            echo "⚠️ README.md should be expanded"
+          fi
+        else
+          echo "❌ README.md missing"
+          exit 1
+        fi
+        
+    - name: Validate project requirements
+      run: |
+        echo "Validating PoC requirements alignment..."
+        # Check if CLAUDE.md mentions key PoC requirements
+        required_terms=("点群データ" "変形検出" "3Dビューア" "LAS" "LAZ" "カラーバー")
+        for term in "${required_terms[@]}"; do
+          if grep -q "$term" CLAUDE.md; then
+            echo "✅ $term requirement documented"
+          else
+            echo "⚠️ $term requirement should be documented"
+          fi
+        done
