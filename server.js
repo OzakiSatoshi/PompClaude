@@ -140,7 +140,7 @@ app.get('/', (req, res) => {
                 <h3>📤 点群データアップロード</h3>
                 <div class="upload-area">
                     <h4>LAS/LAZファイルをアップロード</h4>
-                    <form action="/upload" method="post" enctype="multipart/form-data">
+                    <form id="upload-form" enctype="multipart/form-data">
                         <div style="margin: 20px 0;">
                             <label for="file1">基準データ（撮影日1）:</label><br>
                             <input type="file" id="file1" name="file1" accept=".las,.laz" required>
@@ -149,10 +149,40 @@ app.get('/', (req, res) => {
                             <label for="file2">比較データ（撮影日2）:</label><br>
                             <input type="file" id="file2" name="file2" accept=".las,.laz" required>
                         </div>
-                        <button type="submit" style="background-color: #3498db; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer;">
+                        <button type="submit" id="upload-btn" style="background-color: #3498db; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer;">
                             変形検出を開始
                         </button>
+                        <div id="upload-progress" style="display: none; margin-top: 10px;">
+                            <div style="background-color: #f0f0f0; border-radius: 5px; overflow: hidden;">
+                                <div id="progress-bar" style="background-color: #3498db; height: 20px; width: 0%; transition: width 0.3s;"></div>
+                            </div>
+                            <p id="progress-text">処理中...</p>
+                        </div>
                     </form>
+                </div>
+            </div>
+
+            <div class="section" id="results-section" style="display: none;">
+                <h3>🔍 変形検出結果</h3>
+                <div id="deformation-stats"></div>
+                
+                <div style="margin-top: 20px;">
+                    <h4>3D視覚化</h4>
+                    <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                        <button id="show-cloud1" onclick="togglePointCloud(1)" style="padding: 5px 10px; background-color: #0066cc; color: white; border: none; border-radius: 3px;">基準データ表示</button>
+                        <button id="show-cloud2" onclick="togglePointCloud(2)" style="padding: 5px 10px; background-color: #cc6600; color: white; border: none; border-radius: 3px;">比較データ表示</button>
+                        <button id="show-deformation" onclick="showDeformationView()" style="padding: 5px 10px; background-color: #e74c3c; color: white; border: none; border-radius: 3px;">変形解析表示</button>
+                    </div>
+                    <div id="viewer-container" style="width: 100%; height: 500px; border: 1px solid #ddd; border-radius: 5px; background-color: #f8f9fa;"></div>
+                </div>
+                
+                <div style="margin-top: 20px;">
+                    <h4>📊 カラーバー</h4>
+                    <div id="color-bar" style="display: flex; align-items: center; gap: 10px;">
+                        <span>変形量小</span>
+                        <div style="width: 200px; height: 20px; background: linear-gradient(to right, blue, green, yellow, orange, red); border: 1px solid #ccc;"></div>
+                        <span>変形量大</span>
+                    </div>
                 </div>
             </div>
 
@@ -187,16 +217,281 @@ app.get('/', (req, res) => {
                     <li><code>GET /api/status</code> - システム状態</li>
                 </ul>
             </div>
+            
+            <!-- Three.js Library -->
+            <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r160/three.min.js"></script>
+            
+            <!-- Point Cloud Viewer -->
+            <script src="/js/point-cloud-viewer.js"></script>
+            
+            <script>
+                let viewer = null;
+                let currentResults = null;
+                
+                document.addEventListener('DOMContentLoaded', function() {
+                    // Initialize form handling
+                    const form = document.getElementById('upload-form');
+                    const uploadBtn = document.getElementById('upload-btn');
+                    const progressDiv = document.getElementById('upload-progress');
+                    const progressBar = document.getElementById('progress-bar');
+                    const progressText = document.getElementById('progress-text');
+                    const resultsSection = document.getElementById('results-section');
+                    
+                    form.addEventListener('submit', async function(e) {
+                        e.preventDefault();
+                        
+                        const file1 = document.getElementById('file1').files[0];
+                        const file2 = document.getElementById('file2').files[0];
+                        
+                        if (!file1 || !file2) {
+                            alert('2つのファイルを選択してください');
+                            return;
+                        }
+                        
+                        // Show progress
+                        uploadBtn.disabled = true;
+                        uploadBtn.textContent = '処理中...';
+                        progressDiv.style.display = 'block';
+                        
+                        try {
+                            const formData = new FormData();
+                            formData.append('file1', file1);
+                            formData.append('file2', file2);
+                            
+                            // Simulate progress
+                            let progress = 0;
+                            const progressInterval = setInterval(() => {
+                                progress += Math.random() * 20;
+                                if (progress > 90) progress = 90;
+                                progressBar.style.width = progress + '%';
+                                progressText.textContent = \`処理中... \${Math.round(progress)}%\`;
+                            }, 200);
+                            
+                            const response = await fetch('/upload', {
+                                method: 'POST',
+                                body: formData
+                            });
+                            
+                            clearInterval(progressInterval);
+                            progressBar.style.width = '100%';
+                            progressText.textContent = '完了!';
+                            
+                            const result = await response.json();
+                            
+                            if (response.ok) {
+                                currentResults = result;
+                                displayResults(result);
+                            } else {
+                                throw new Error(result.error || 'アップロードに失敗しました');
+                            }
+                            
+                        } catch (error) {
+                            console.error('Upload error:', error);
+                            alert('エラー: ' + error.message);
+                        } finally {
+                            // Reset form
+                            uploadBtn.disabled = false;
+                            uploadBtn.textContent = '変形検出を開始';
+                            setTimeout(() => {
+                                progressDiv.style.display = 'none';
+                                progressBar.style.width = '0%';
+                            }, 2000);
+                        }
+                    });
+                });
+                
+                function displayResults(result) {
+                    const resultsSection = document.getElementById('results-section');
+                    const statsDiv = document.getElementById('deformation-stats');
+                    
+                    // Update statistics
+                    statsDiv.innerHTML = \`
+                        <h4>変形検出結果</h4>
+                        <div class="status">
+                            <p><strong>処理時間:</strong> \${result.processing.processingTime}</p>
+                            <p><strong>最大変形量:</strong> \${result.processing.maxDeformation}</p>
+                            <p><strong>平均変形量:</strong> \${result.processing.averageDeformation}</p>
+                            <p><strong>有意な変形点:</strong> \${result.processing.affectedPoints}点</p>
+                            <p><strong>処理済み点数:</strong> \${result.pointClouds.cloud1.pointCount + result.pointClouds.cloud2.pointCount}点</p>
+                        </div>
+                    \`;
+                    
+                    // Show results section
+                    resultsSection.style.display = 'block';
+                    
+                    // Initialize 3D viewer
+                    if (!viewer) {
+                        viewer = new PointCloudViewer('viewer-container');
+                    }
+                    
+                    // Load point cloud data
+                    viewer.loadPointCloudData(result.pointClouds.cloud1, result.pointClouds.cloud2);
+                    
+                    // Scroll to results
+                    resultsSection.scrollIntoView({ behavior: 'smooth' });
+                }
+                
+                function togglePointCloud(cloudNumber) {
+                    if (!viewer || !currentResults) return;
+                    
+                    if (cloudNumber === 1) {
+                        viewer.togglePointCloud(1, true);
+                        viewer.togglePointCloud(2, false);
+                        if (viewer.deformationCloud) viewer.deformationCloud.visible = false;
+                    } else if (cloudNumber === 2) {
+                        viewer.togglePointCloud(1, false);
+                        viewer.togglePointCloud(2, true);
+                        if (viewer.deformationCloud) viewer.deformationCloud.visible = false;
+                    }
+                }
+                
+                function showDeformationView() {
+                    if (!viewer || !currentResults) return;
+                    
+                    viewer.togglePointCloud(1, false);
+                    viewer.togglePointCloud(2, false);
+                    if (viewer.deformationCloud) viewer.deformationCloud.visible = true;
+                }
+            </script>
         </body>
         </html>
     `);
 });
 
+// 点群データ処理関数
+async function processPointCloudData(file1Path, file2Path) {
+    try {
+        // LAS/LAZファイルの読み込み（モック実装）
+        const pointCloud1 = await readPointCloudFile(file1Path);
+        const pointCloud2 = await readPointCloudFile(file2Path);
+        
+        // 変形検出処理
+        const deformationResult = performDeformationAnalysis(pointCloud1, pointCloud2);
+        
+        return {
+            pointCloud1,
+            pointCloud2,
+            deformationResult
+        };
+    } catch (error) {
+        console.error('Point cloud processing error:', error);
+        throw error;
+    }
+}
+
+// 点群ファイル読み込み（モック実装）
+async function readPointCloudFile(filePath) {
+    // 実際のLAS/LAZ読み込みの代わりにモックデータを生成
+    const pointCount = 500 + Math.floor(Math.random() * 1500);
+    const points = [];
+    
+    for (let i = 0; i < pointCount; i++) {
+        // ポンプのような円筒形状をモック
+        const angle = (i / pointCount) * Math.PI * 4;
+        const height = (i / pointCount) * 10 - 5;
+        const radius = 2 + Math.sin(height) * 0.5 + (Math.random() - 0.5) * 0.3;
+        
+        points.push({
+            x: radius * Math.cos(angle) + (Math.random() - 0.5) * 0.1,
+            y: height + (Math.random() - 0.5) * 0.1,
+            z: radius * Math.sin(angle) + (Math.random() - 0.5) * 0.1,
+            intensity: Math.floor(Math.random() * 255),
+            classification: Math.floor(Math.random() * 5)
+        });
+    }
+    
+    return {
+        fileName: path.basename(filePath),
+        pointCount: points.length,
+        points: points,
+        bounds: calculateBounds(points)
+    };
+}
+
+// 境界計算
+function calculateBounds(points) {
+    if (points.length === 0) return null;
+    
+    let minX = Infinity, maxX = -Infinity;
+    let minY = Infinity, maxY = -Infinity;
+    let minZ = Infinity, maxZ = -Infinity;
+    
+    points.forEach(point => {
+        minX = Math.min(minX, point.x);
+        maxX = Math.max(maxX, point.x);
+        minY = Math.min(minY, point.y);
+        maxY = Math.max(maxY, point.y);
+        minZ = Math.min(minZ, point.z);
+        maxZ = Math.max(maxZ, point.z);
+    });
+    
+    return { minX, maxX, minY, maxY, minZ, maxZ };
+}
+
+// 変形解析実行
+function performDeformationAnalysis(cloud1, cloud2) {
+    const startTime = Date.now();
+    
+    // 最近接点探索と変形量計算
+    const deformations = [];
+    const maxSearchDistance = 1.0;
+    
+    cloud1.points.forEach((point1, index) => {
+        let minDistance = Infinity;
+        let closestPoint = null;
+        
+        // 第2の点群から最も近い点を探索
+        cloud2.points.forEach(point2 => {
+            const distance = Math.sqrt(
+                Math.pow(point1.x - point2.x, 2) +
+                Math.pow(point1.y - point2.y, 2) +
+                Math.pow(point1.z - point2.z, 2)
+            );
+            
+            if (distance < minDistance && distance < maxSearchDistance) {
+                minDistance = distance;
+                closestPoint = point2;
+            }
+        });
+        
+        if (closestPoint) {
+            deformations.push({
+                index: index,
+                point: point1,
+                closestPoint: closestPoint,
+                deformation: minDistance,
+                deformationMm: minDistance * 1000 // Convert to mm
+            });
+        }
+    });
+    
+    // 統計計算
+    const deformationValues = deformations.map(d => d.deformation);
+    const maxDeformation = Math.max(...deformationValues);
+    const avgDeformation = deformationValues.reduce((a, b) => a + b, 0) / deformationValues.length;
+    const significantDeformations = deformations.filter(d => d.deformation > 0.0001); // 0.1mm以上
+    
+    const processingTime = Date.now() - startTime;
+    
+    return {
+        deformations: deformations,
+        statistics: {
+            maxDeformation: maxDeformation,
+            maxDeformationMm: maxDeformation * 1000,
+            averageDeformation: avgDeformation,
+            averageDeformationMm: avgDeformation * 1000,
+            significantDeformationCount: significantDeformations.length,
+            totalPointsAnalyzed: deformations.length,
+            processingTimeMs: processingTime
+        }
+    };
+}
+
 // ファイルアップロードエンドポイント
 app.post('/upload', upload.fields([
     { name: 'file1', maxCount: 1 },
     { name: 'file2', maxCount: 1 }
-]), (req, res) => {
+]), async (req, res) => {
     try {
         const file1 = req.files.file1 ? req.files.file1[0] : null;
         const file2 = req.files.file2 ? req.files.file2[0] : null;
@@ -211,10 +506,16 @@ app.post('/upload', upload.fields([
             });
         }
 
-        // 実際の点群処理はここで実装予定
-        // 現在はモックレスポンスを返す
-        const mockResult = {
-            message: '点群データのアップロードが完了しました',
+        console.log(`Processing point cloud files: ${file1.originalname}, ${file2.originalname}`);
+        
+        // 点群データ処理実行
+        const processingResult = await processPointCloudData(
+            path.join(uploadsDir, file1.filename),
+            path.join(uploadsDir, file2.filename)
+        );
+
+        const result = {
+            message: '点群データの処理が完了しました',
             files: {
                 file1: {
                     name: file1.originalname,
@@ -229,15 +530,34 @@ app.post('/upload', upload.fields([
             },
             processing: {
                 status: 'completed',
-                processingTime: '2.3秒',
-                deformationDetected: true,
-                maxDeformation: '0.5mm',
-                affectedPoints: 1247
+                processingTime: `${(processingResult.deformationResult.statistics.processingTimeMs / 1000).toFixed(1)}秒`,
+                deformationDetected: processingResult.deformationResult.statistics.maxDeformationMm > 0.1,
+                maxDeformation: `${processingResult.deformationResult.statistics.maxDeformationMm.toFixed(2)}mm`,
+                averageDeformation: `${processingResult.deformationResult.statistics.averageDeformationMm.toFixed(2)}mm`,
+                affectedPoints: processingResult.deformationResult.statistics.significantDeformationCount
+            },
+            pointClouds: {
+                cloud1: {
+                    fileName: processingResult.pointCloud1.fileName,
+                    pointCount: processingResult.pointCloud1.pointCount,
+                    bounds: processingResult.pointCloud1.bounds,
+                    points: processingResult.pointCloud1.points.slice(0, 1000) // Limit for web transfer
+                },
+                cloud2: {
+                    fileName: processingResult.pointCloud2.fileName,
+                    pointCount: processingResult.pointCloud2.pointCount,
+                    bounds: processingResult.pointCloud2.bounds,
+                    points: processingResult.pointCloud2.points.slice(0, 1000) // Limit for web transfer
+                }
+            },
+            deformationAnalysis: {
+                statistics: processingResult.deformationResult.statistics,
+                deformations: processingResult.deformationResult.deformations.slice(0, 1000) // Limit for web transfer
             },
             timestamp: new Date().toISOString()
         };
 
-        res.json(mockResult);
+        res.json(result);
 
     } catch (error) {
         console.error('Upload error:', error);
