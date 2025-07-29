@@ -218,11 +218,204 @@ app.get('/', (req, res) => {
                 </ul>
             </div>
             
-            <!-- Three.js Library -->
-            <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r160/three.min.js"></script>
+            <!-- Three.js Library with onload handler -->
+            <script>
+                // Global flag to track THREE.js loading
+                window.threeJSLoaded = false;
+                
+                // Function to load Three.js
+                function loadThreeJS() {
+                    const script = document.createElement('script');
+                    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.min.js';
+                    script.onload = function() {
+                        console.log('Three.js loaded successfully');
+                        window.threeJSLoaded = true;
+                        initInlineViewer(); // Initialize viewer after THREE.js loads
+                    };
+                    script.onerror = function() {
+                        console.error('Failed to load Three.js');
+                        initInlineViewer(); // Initialize fallback viewer
+                    };
+                    document.head.appendChild(script);
+                }
+                
+                // Load Three.js immediately
+                loadThreeJS();
+            </script>
             
-            <!-- Point Cloud Viewer -->
-            <script src="/js/point-cloud-viewer.js"></script>
+            <script>
+                let viewer = null;
+                let currentResults = null;
+                
+                // Fallback inline viewer for when external files don't load
+                function initInlineViewer() {
+                    console.log('Initializing inline fallback viewer');
+                    window.PointCloudViewer = class {
+                        constructor(containerId) {
+                            this.container = document.getElementById(containerId);
+                            this.container.innerHTML = '<div style="display: flex; align-items: center; justify-content: center; height: 100%; background-color: #f0f0f0; border: 2px dashed #ccc;"><p>3Dビューア読み込み中...</p></div>';
+                            
+                            if (typeof THREE !== 'undefined') {
+                                this.initThreeJS();
+                            } else {
+                                this.showFallbackMessage();
+                            }
+                        }
+                        
+                        initThreeJS() {
+                            this.container.innerHTML = '';
+                            this.scene = new THREE.Scene();
+                            this.scene.background = new THREE.Color(0xf0f0f0);
+                            
+                            this.camera = new THREE.PerspectiveCamera(75, this.container.clientWidth / this.container.clientHeight, 0.1, 1000);
+                            this.camera.position.set(5, 5, 10);
+                            
+                            this.renderer = new THREE.WebGLRenderer({ antialias: true });
+                            this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
+                            this.container.appendChild(this.renderer.domElement);
+                            
+                            // Add basic lighting
+                            const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
+                            this.scene.add(ambientLight);
+                            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+                            directionalLight.position.set(10, 10, 5);
+                            this.scene.add(directionalLight);
+                            
+                            // Add grid
+                            const grid = new THREE.GridHelper(20, 20);
+                            this.scene.add(grid);
+                            
+                            // Basic controls
+                            this.setupBasicControls();
+                            this.animate();
+                        }
+                        
+                        setupBasicControls() {
+                            let isMouseDown = false;
+                            let mouseX = 0, mouseY = 0;
+                            
+                            this.renderer.domElement.addEventListener('mousedown', (e) => {
+                                isMouseDown = true;
+                                mouseX = e.clientX;
+                                mouseY = e.clientY;
+                            });
+                            
+                            this.renderer.domElement.addEventListener('mouseup', () => {
+                                isMouseDown = false;
+                            });
+                            
+                            this.renderer.domElement.addEventListener('mousemove', (e) => {
+                                if (!isMouseDown) return;
+                                const deltaX = e.clientX - mouseX;
+                                const deltaY = e.clientY - mouseY;
+                                this.camera.position.x += deltaX * 0.01;
+                                this.camera.position.y -= deltaY * 0.01;
+                                this.camera.lookAt(0, 0, 0);
+                                mouseX = e.clientX;
+                                mouseY = e.clientY;
+                            });
+                            
+                            this.renderer.domElement.addEventListener('wheel', (e) => {
+                                const scale = e.deltaY > 0 ? 1.1 : 0.9;
+                                this.camera.position.multiplyScalar(scale);
+                            });
+                        }
+                        
+                        showFallbackMessage() {
+                            this.container.innerHTML = \`
+                                <div style="padding: 20px; text-align: center; background-color: #fff3cd; border: 1px solid #ffeaa7; border-radius: 5px;">
+                                    <h4>🔧 3Dビューア準備中</h4>
+                                    <p>Three.jsライブラリの読み込み中です...</p>
+                                    <div style="margin-top: 15px;">
+                                        <button onclick="location.reload()" style="padding: 5px 15px; background-color: #007bff; color: white; border: none; border-radius: 3px;">
+                                            ページを再読み込み
+                                        </button>
+                                    </div>
+                                </div>
+                            \`;
+                        }
+                        
+                        loadPointCloudData(data1, data2) {
+                            if (!this.scene) {
+                                console.log('Scene not ready, showing data summary instead');
+                                this.showDataSummary(data1, data2);
+                                return;
+                            }
+                            
+                            // Clear existing objects
+                            this.clearPointClouds();
+                            
+                            if (data1 && data1.points) {
+                                this.addPointCloud(data1.points, 0x0066cc);
+                            }
+                            if (data2 && data2.points) {
+                                this.addPointCloud(data2.points, 0xcc6600);
+                            }
+                        }
+                        
+                        addPointCloud(points, color) {
+                            const geometry = new THREE.BufferGeometry();
+                            const positions = new Float32Array(points.length * 3);
+                            
+                            for (let i = 0; i < points.length; i++) {
+                                positions[i * 3] = points[i].x;
+                                positions[i * 3 + 1] = points[i].y;
+                                positions[i * 3 + 2] = points[i].z;
+                            }
+                            
+                            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                            const material = new THREE.PointsMaterial({ color: color, size: 0.1 });
+                            const pointCloud = new THREE.Points(geometry, material);
+                            this.scene.add(pointCloud);
+                        }
+                        
+                        showDataSummary(data1, data2) {
+                            this.container.innerHTML = \`
+                                <div style="padding: 20px; background-color: white; border-radius: 5px;">
+                                    <h4>📊 点群データ読み込み完了</h4>
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 15px;">
+                                        <div style="padding: 15px; background-color: #e3f2fd; border-radius: 5px;">
+                                            <h5 style="color: #0066cc;">基準データ</h5>
+                                            <p>点数: \${data1.pointCount || 'N/A'}</p>
+                                            <p>ファイル: \${data1.fileName || 'Unknown'}</p>
+                                        </div>
+                                        <div style="padding: 15px; background-color: #fff3e0; border-radius: 5px;">
+                                            <h5 style="color: #cc6600;">比較データ</h5>
+                                            <p>点数: \${data2.pointCount || 'N/A'}</p>
+                                            <p>ファイル: \${data2.fileName || 'Unknown'}</p>
+                                        </div>
+                                    </div>
+                                    <div style="margin-top: 15px; text-align: center;">
+                                        <p style="color: #666;">3D表示にはThree.jsが必要です</p>
+                                        <button onclick="location.reload()" style="padding: 8px 16px; background-color: #28a745; color: white; border: none; border-radius: 4px;">
+                                            再試行
+                                        </button>
+                                    </div>
+                                </div>
+                            \`;
+                        }
+                        
+                        clearPointClouds() {
+                            if (!this.scene) return;
+                            const objects = this.scene.children.slice();
+                            objects.forEach(obj => {
+                                if (obj.type === 'Points') {
+                                    this.scene.remove(obj);
+                                }
+                            });
+                        }
+                        
+                        togglePointCloud() {
+                            console.log('Point cloud visibility toggled');
+                        }
+                        
+                        animate() {
+                            if (!this.renderer || !this.scene || !this.camera) return;
+                            requestAnimationFrame(() => this.animate());
+                            this.renderer.render(this.scene, this.camera);
+                        }
+                    };
+                }
             
             <script>
                 let viewer = null;
@@ -321,7 +514,37 @@ app.get('/', (req, res) => {
                     
                     // Initialize 3D viewer
                     if (!viewer) {
-                        viewer = new PointCloudViewer('viewer-container');
+                        // Wait for PointCloudViewer to be available
+                        if (typeof PointCloudViewer !== 'undefined') {
+                            viewer = new PointCloudViewer('viewer-container');
+                        } else {
+                            console.log('PointCloudViewer not yet loaded, creating fallback');
+                            // Create a temporary fallback
+                            const container = document.getElementById('viewer-container');
+                            container.innerHTML = \`
+                                <div style="display: flex; align-items: center; justify-content: center; height: 100%; background-color: #f8f9fa; border: 2px dashed #dee2e6; border-radius: 5px;">
+                                    <div style="text-align: center; padding: 20px;">
+                                        <h4>🔄 3Dビューア初期化中</h4>
+                                        <p>Three.jsライブラリの読み込み完了を待機中...</p>
+                                        <div style="margin-top: 15px;">
+                                            <button onclick="location.reload()" style="padding: 8px 16px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                                                ページを再読み込み
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            \`;
+                            
+                            // Try again after a delay
+                            setTimeout(() => {
+                                if (typeof PointCloudViewer !== 'undefined') {
+                                    viewer = new PointCloudViewer('viewer-container');
+                                    if (currentResults) {
+                                        viewer.loadPointCloudData(currentResults.pointClouds.cloud1, currentResults.pointClouds.cloud2);
+                                    }
+                                }
+                            }, 2000);
+                        }
                     }
                     
                     // Load point cloud data
