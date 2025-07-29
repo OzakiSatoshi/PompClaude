@@ -2,6 +2,9 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## 最終更新日
+2025-07-29: Claude Code統合ワークフロー追加
+
 ## プロジェクト概要
 
 PompClaudeは、公共水道ポンプの異常検出システムのPoC（概念実証）開発プロジェクトです。点群データを用いてポンプの変形を検出し、視覚的に表示するWebアプリケーションです。PoCはコスト削減のためDocker上で稼働し、クラウド環境への移行は本番以降を想定しています。
