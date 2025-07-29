@@ -1,0 +1,232 @@
+name: Claude Code Integration
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+  workflow_dispatch:
+    inputs:
+      task:
+        description: 'Task for Claude Code to execute'
+        required: false
+        default: 'Review code and suggest improvements'
+
+jobs:
+  claude-code-analysis:
+    runs-on: ubuntu-latest
+    name: Claude Code Analysis
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        
+    - name: Install Claude Code CLI
+      run: |
+        echo "Installing Claude Code CLI..."
+        npm install -g @anthropic-ai/claude-code-cli
+        
+    - name: Verify Claude Code Installation
+      env:
+        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      run: |
+        echo "Verifying Claude Code installation..."
+        claude-code --version || echo "Claude Code version check failed"
+        
+    - name: Code Review with Claude Code
+      env:
+        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      run: |
+        echo "Running Claude Code analysis..."
+        task="${{ github.event.inputs.task || 'Review the codebase and identify areas for improvement based on the CLAUDE.md requirements' }}"
+        echo "Task: $task"
+        
+        # Run Claude Code analysis
+        claude-code "$task" > claude-analysis.md || echo "Claude Code analysis completed with warnings"
+        
+        # Display results
+        if [ -f "claude-analysis.md" ]; then
+          echo "=== Claude Code Analysis Results ==="
+          cat claude-analysis.md
+        else
+          echo "No analysis output generated"
+        fi
+        
+    - name: Upload Analysis Results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: claude-code-analysis
+        path: claude-analysis.md
+        retention-days: 30
+        
+    - name: Project Structure Analysis
+      env:
+        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      run: |
+        echo "Analyzing project structure for PoC requirements..."
+        claude-code "Analyze the project structure and suggest the next development steps for the PompClaude PoC based on CLAUDE.md requirements" > structure-analysis.md || true
+        
+        if [ -f "structure-analysis.md" ]; then
+          echo "=== Project Structure Analysis ==="
+          cat structure-analysis.md
+        fi
+        
+    - name: Security Review
+      env:
+        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      run: |
+        echo "Running security review with Claude Code..."
+        claude-code "Review the codebase for security vulnerabilities, especially regarding point cloud data handling and Docker security" > security-review.md || true
+        
+        if [ -f "security-review.md" ]; then
+          echo "=== Security Review Results ==="
+          cat security-review.md
+        fi
+        
+    - name: Performance Analysis
+      env:
+        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      run: |
+        echo "Analyzing performance requirements..."
+        claude-code "Analyze the current setup and suggest optimizations to meet the 10-second processing requirement for point cloud comparison" > performance-analysis.md || true
+        
+        if [ -f "performance-analysis.md" ]; then
+          echo "=== Performance Analysis ==="
+          cat performance-analysis.md
+        fi
+        
+    - name: Upload All Analysis Results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: claude-comprehensive-analysis
+        path: |
+          claude-analysis.md
+          structure-analysis.md
+          security-review.md
+          performance-analysis.md
+        retention-days: 30
+
+  claude-code-suggestions:
+    runs-on: ubuntu-latest
+    name: Claude Code Development Suggestions
+    needs: claude-code-analysis
+    if: github.event_name == 'pull_request'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        
+    - name: Install Claude Code CLI
+      run: |
+        npm install -g @anthropic-ai/claude-code-cli
+        
+    - name: Analyze PR Changes
+      env:
+        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      run: |
+        echo "Analyzing pull request changes..."
+        
+        # Get changed files
+        git diff --name-only origin/master...HEAD > changed-files.txt
+        echo "Changed files:"
+        cat changed-files.txt
+        
+        # Analyze changes with Claude Code
+        if [ -s changed-files.txt ]; then
+          claude-code "Review the changes in this pull request and provide feedback based on the PompClaude PoC requirements" > pr-review.md || true
+          
+          if [ -f "pr-review.md" ]; then
+            echo "=== Pull Request Review ==="
+            cat pr-review.md
+          fi
+        else
+          echo "No files changed in this PR"
+        fi
+        
+    - name: Comment on PR with Claude Analysis
+      if: github.event_name == 'pull_request' && github.event.action != 'closed'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          
+          let comment = '## 🤖 Claude Code Analysis\n\n';
+          
+          if (fs.existsSync('pr-review.md')) {
+            const review = fs.readFileSync('pr-review.md', 'utf8');
+            comment += '### Pull Request Review\n';
+            comment += '```\n' + review + '\n```\n\n';
+          }
+          
+          comment += '---\n*This analysis was generated by Claude Code in GitHub Actions*';
+          
+          await github.rest.issues.createComment({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+            body: comment
+          });
+
+  claude-weekly-report:
+    runs-on: ubuntu-latest
+    name: Weekly Project Report
+    if: github.event_name == 'schedule'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        
+    - name: Install Claude Code CLI
+      run: |
+        npm install -g @anthropic-ai/claude-code-cli
+        
+    - name: Generate Weekly Report
+      env:
+        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      run: |
+        echo "Generating weekly project report..."
+        claude-code "Generate a weekly progress report for the PompClaude PoC project, including current status, completed tasks, and next steps" > weekly-report.md || true
+        
+        if [ -f "weekly-report.md" ]; then
+          echo "=== Weekly Report ==="
+          cat weekly-report.md
+        fi
+        
+    - name: Create Issue with Weekly Report
+      if: success()
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          
+          if (fs.existsSync('weekly-report.md')) {
+            const report = fs.readFileSync('weekly-report.md', 'utf8');
+            const date = new Date().toISOString().split('T')[0];
+            
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `週次レポート - ${date}`,
+              body: `# PompClaude PoC 週次レポート\n\n${report}\n\n---\n*このレポートはClaude Codeによって自動生成されました*`,
+              labels: ['report', 'poc', 'auto-generated']
+            });
+          }
